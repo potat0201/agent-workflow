@@ -34,11 +34,16 @@ Mở **PowerShell**, rồi:
 ```powershell
 cd D:\day-chuyen-4-agent
 
-# a) Đăng nhập Antigravity CLI bằng MỘT tài khoản Google
+# a) Đăng nhập tài khoản Claude RIÊNG cho dây chuyền (vd Pro cá nhân), lưu ở ổ D.
+#    Claude Code bình thường của bạn vẫn giữ tài khoản cũ.
+.\ship.ps1 -DangNhapClaude -ClaudeConfig D:\claude-pro
+
+# b) Đăng nhập Antigravity CLI bằng MỘT tài khoản Google
 agy
 #    → trình duyệt mở ra, chọn tài khoản, cho phép. Quay lại terminal gõ  /quit
+#    (Muốn đổi tài khoản: trong agy gõ  /logout , rồi chạy  agy  lại để đăng nhập tài khoản khác.)
 
-# b) Kiểm tra mọi thứ (có gọi thử mỗi AI một câu rất ngắn)
+# c) Kiểm tra mọi thứ (có gọi thử mỗi AI một câu rất ngắn)
 .\ship.ps1 -KiemTra
 ```
 
@@ -90,8 +95,8 @@ Sửa `AGENTS.md` cho đúng dự án mới (mô tả, lệnh test, quy ước).
 - Coder và Tester chạy agy ở chế độ tự duyệt lệnh (`--dangerously-skip-permissions`), vì chế độ không giao diện của agy trên Windows chưa áp đúng danh sách quyền. Bù lại, mọi thứ nằm trên nhánh riêng và có snapshot. Muốn chặt hơn thì dùng `-AgyAnToan` (khi đó agy có thể không tự chạy được test).
 - Planner và Reviewer chỉ được đọc. Nếu lỡ sửa file, script cất các thay đổi đó vào `git stash`.
 - Chỉ dùng **một** tài khoản Google cho agy. Không dùng app đổi tài khoản hay proxy quota: điều khoản của Antigravity cấm, và tài khoản có thể bị khoá.
-- Claude Code dùng tài khoản đang đăng nhập trên máy (`claude auth status`). Muốn đổi sang tài khoản khác: `claude auth logout`, rồi `claude auth login`.
-- Để ổ C không đầy thêm: file tạm của dây chuyền nằm trong `.tmp\` của dự án, còn các lượt chạy tự động của Claude không lưu lịch sử phiên.
+- Claude: dây chuyền dùng đăng nhập riêng ở `D:\claude-pro` (ghi nhớ bằng biến môi trường `SHIP_CLAUDE_CONFIG`), còn Claude Code bình thường của bạn vẫn dùng tài khoản cũ. Muốn đổi tài khoản cho dây chuyền thì chạy lại `.\ship.ps1 -DangNhapClaude -ClaudeConfig D:\claude-pro`.
+- Để ổ C không đầy thêm: file tạm của dây chuyền nằm trong `.tmp\` của dự án, đăng nhập Claude của dây chuyền nằm ở `D:\claude-pro`, còn các lượt chạy tự động của Claude không lưu lịch sử phiên.
 
 ## 7. Cấu trúc thư mục
 

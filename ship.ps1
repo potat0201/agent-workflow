@@ -27,6 +27,9 @@
 .EXAMPLE
     .\ship.ps1 -TiepTuc -Reviewer agy
     Chay tiep tu buoc bi dung (vd het quota Claude), doi may cho vai Reviewer.
+.EXAMPLE
+    .\ship.ps1 -DangNhapClaude -ClaudeConfig D:\claude-pro
+    Dang nhap mot tai khoan Claude rieng cho day chuyen (vd Pro ca nhan), khong dung toi dang nhap Claude chinh.
 #>
 [CmdletBinding()]
 param(
@@ -45,6 +48,12 @@ param(
     [string]$AgyTimeout = '30m',
     # Khong tu duyet lenh cho agy (an toan hon, nhung agy co the khong chay duoc test)
     [switch]$AgyAnToan,
+    # Thu muc dang nhap RIENG cho tai khoan Claude cua day chuyen (vd D:\claude-pro).
+    # Bo trong: lay tu bien moi truong SHIP_CLAUDE_CONFIG; neu cung trong thi dung dang nhap Claude binh thuong.
+    [string]$ClaudeConfig = '',
+    # Dang nhap tai khoan Claude cho day chuyen (mo trinh duyet), vd:
+    #   .\ship.ps1 -DangNhapClaude -ClaudeConfig D:\claude-pro
+    [switch]$DangNhapClaude,
     [switch]$TiepTuc,
     [switch]$KiemTra,
     [switch]$ChayThu
@@ -78,6 +87,15 @@ $ClaudeSettings = Join-Path $ClaudeAgentDir 'settings.json'
 # Quyen cho Claude khi dong vai Coder/Tester: sua file + chay python/pytest
 $ClaudeRunTools = 'Read,Write,Edit,Glob,Grep,Bash(python *),Bash(py *),Bash(pytest *),PowerShell(python *),PowerShell(py *),PowerShell(pytest *)'
 $script:st = $null
+
+# Tai khoan Claude rieng cho day chuyen: moi thu muc CLAUDE_CONFIG_DIR giu mot dang nhap rieng
+$ClaudeConfigFromParam = [bool]$ClaudeConfig
+if (-not $ClaudeConfig) { $ClaudeConfig = $env:SHIP_CLAUDE_CONFIG }
+if (-not $ClaudeConfig) { $ClaudeConfig = [Environment]::GetEnvironmentVariable('SHIP_CLAUDE_CONFIG', 'User') }
+if ($ClaudeConfig) {
+    if (-not (Test-Path $ClaudeConfig)) { New-Item -ItemType Directory -Path $ClaudeConfig -Force | Out-Null }
+    $env:CLAUDE_CONFIG_DIR = $ClaudeConfig
+}
 
 # Giu o C gon: file tam cua cac tien trinh con nam trong .tmp\ cua du an
 if (-not (Test-Path $TmpDir)) { New-Item -ItemType Directory -Path $TmpDir -Force | Out-Null }
@@ -150,6 +168,13 @@ function ConvertFrom-JsonLoose([string]$Raw) {
     $e = $Raw.LastIndexOf('}')
     if ($s -lt 0 -or $e -le $s) { return $null }
     try { return ($Raw.Substring($s, $e - $s + 1) | ConvertFrom-Json) } catch { return $null }
+}
+
+function Get-AgyAccount {
+    # Chi doc email dang dang nhap (khong doc token)
+    $f = Join-Path $env:USERPROFILE '.gemini\google_accounts.json'
+    if (-not (Test-Path $f)) { return '' }
+    try { return [string]((Get-Content $f -Raw | ConvertFrom-Json).active) } catch { return '' }
 }
 
 function Get-RoleParam([string]$Role) { return (Get-Culture).TextInfo.ToTitleCase($Role) }
@@ -478,13 +503,17 @@ function Invoke-Doctor {
     if ($LASTEXITCODE -eq 0) { Say ('  [OK] pytest  ' + $pt) 'Green' }
     else { $bad++; Say '  [X]  pytest chua cai. Cai bang:  python -m pip install --user pytest' 'Red' }
 
-    Say '--- Tai khoan Claude' 'Cyan'
+    Say '--- Tai khoan Claude (Planner, Reviewer)' 'Cyan'
+    if ($ClaudeConfig) { Say ('  Dang nhap rieng cua day chuyen: ' + $ClaudeConfig) 'Gray' } else { Say '  Dung dang nhap Claude chinh cua may' 'Gray' }
     if (Get-Command claude -ErrorAction SilentlyContinue) {
         $auth = ((& claude auth status --text 2>&1) | Out-String).Trim()
         if ($LASTEXITCODE -eq 0) {
             foreach ($line in ($auth -split "`n")) { if ($line.Trim()) { Say ('  ' + $line.Trim()) 'Gray' } }
-        } else { $bad++; Say '  [X]  Claude chua dang nhap. Go:  claude   roi lam theo huong dan dang nhap' 'Red' }
+        } else { $bad++; Say '  [X]  Claude chua dang nhap. Chay:  .\ship.ps1 -DangNhapClaude -ClaudeConfig D:\claude-pro' 'Red' }
     }
+    Say '--- Tai khoan Google cua agy (Coder, Tester)' 'Cyan'
+    $ga = Get-AgyAccount
+    if ($ga) { Say ('  ' + $ga) 'Gray' } else { Say '  (khong doc duoc - chay  agy  mot lan de dang nhap)' 'Yellow' }
 
     Say '--- File agent' 'Cyan'
     foreach ($r in $Roles) {
@@ -582,6 +611,22 @@ function Show-Summary {
 # =====================================================================================
 #  CHUONG TRINH CHINH
 # =====================================================================================
+if ($DangNhapClaude) {
+    if (-not $ClaudeConfig) { Say 'Hay chon noi luu dang nhap, vi du:  .\ship.ps1 -DangNhapClaude -ClaudeConfig D:\claude-pro' 'Red'; exit 1 }
+    Say ('Dang nhap tai khoan Claude cho day chuyen (luu o ' + $ClaudeConfig + ')') 'Cyan'
+    Say 'Trinh duyet se mo trang dang nhap claude.ai. Neu trang dang hien tai khoan khac (vd tai khoan cong ty),' 'Yellow'
+    Say 'hay doi sang DUNG tai khoan ban muon dung cho day chuyen roi moi bam Authorize.' 'Yellow'
+    & claude auth login
+    $code = $LASTEXITCODE
+    & claude auth status --text
+    if ($code -eq 0 -and $ClaudeConfigFromParam) {
+        # Nho thu muc nay cho cac lan chay sau (bien moi truong cua user, khong anh huong Claude chinh)
+        [Environment]::SetEnvironmentVariable('SHIP_CLAUDE_CONFIG', $ClaudeConfig, 'User')
+        Say ('Da nho: cac lan chay .\ship.ps1 sau se dung tai khoan nay (SHIP_CLAUDE_CONFIG=' + $ClaudeConfig + ')') 'Green'
+    }
+    exit $code
+}
+
 if ($KiemTra) { Invoke-Doctor }
 
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) { Say 'Chua cai git.' 'Red'; exit 1 }
@@ -653,6 +698,9 @@ Say ''
 Say '=== DAY CHUYEN 4 AGENT ===' 'Cyan'
 Say (' Planner: {0} | Coder: {1} | Tester: {2} | Reviewer: {3} | toi da {4} vong' -f $Engines.planner, $Engines.coder, $Engines.tester, $Engines.reviewer, $SoVong) 'White'
 Say (' So ban giao: ' + $BG) 'DarkGray'
+if ($ClaudeConfig) { Say (' Claude dung dang nhap rieng: ' + $ClaudeConfig) 'DarkGray' }
+$agyAcc = Get-AgyAccount
+if ($agyAcc -and ($Engines.Values -contains 'agy')) { Say (' agy dung tai khoan Google: ' + $agyAcc) 'DarkGray' }
 if ($ChayThu) { Say ' CHE DO CHAY THU: gia lap, khong goi AI, khong commit.' 'Yellow' }
 $watch = [System.Diagnostics.Stopwatch]::StartNew()
 
