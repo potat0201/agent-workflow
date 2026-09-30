@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(git push*)",
+      "Bash(git merge*)",
+      "Bash(git reset --hard*)",
+      "Bash(rm -rf*)",
+      "Bash(curl *)",
+      "Bash(wget *)",
+      "PowerShell(git push*)",
+      "PowerShell(git merge*)",
+      "PowerShell(git reset --hard*)",
+      "PowerShell(Remove-Item * -Recurse*)",
+      "PowerShell(Invoke-WebRequest *)",
+      "PowerShell(Invoke-RestMethod *)",
+      "PowerShell(iwr *)",
+      "PowerShell(irm *)",
+      "Read(./.env)",
+      "Read(./.env.*)"
+    ]
+  }
+}

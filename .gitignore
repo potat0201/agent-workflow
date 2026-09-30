@@ -1,0 +1,22 @@
+# Du lieu cua ung dung mau
+du_lieu.json
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+
+# Bi mat
+.env
+.env.*
+
+# Day chuyen 4 agent: file tam, log tho, trang thai, chay thu
+# (rieng so ban giao .bangiao/ thi DUOC commit de agent doc duoc va de xem lai lich su)
+.tmp/
+.bangiao/raw/
+.bangiao/trang-thai.json
+.bangiao-chaythu/
+
+# Claude Code: cai dat ca nhan
+.claude/settings.local.json
