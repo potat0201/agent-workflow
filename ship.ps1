@@ -48,6 +48,13 @@ param(
     [string]$AgyTimeout = '30m',
     # Khong tu duyet lenh cho agy (an toan hon, nhung agy co the khong chay duoc test)
     [switch]$AgyAnToan,
+    # CACH 1: mac dinh, het quota mot may thi tu doi sang may con lai. -KhongTuChuyen de tat.
+    [switch]$KhongTuChuyen,
+    # CACH 2: mac dinh, ca hai may het quota thi cho roi thu lai. -KhongTuCho de tat.
+    [switch]$KhongTuCho,
+    # So phut cho moi lan, va so lan cho toi da (quota Pro thuong hoi sau moi ~5 tieng)
+    [ValidateRange(1, 180)][int]$PhutCho = 20,
+    [ValidateRange(0, 100)][int]$SoLanCho = 12,
     # Thu muc dang nhap RIENG cho tai khoan Claude cua day chuyen (vd D:\claude-pro).
     # Bo trong: lay tu bien moi truong SHIP_CLAUDE_CONFIG; neu cung trong thi dung dang nhap Claude binh thuong.
     [string]$ClaudeConfig = '',
@@ -80,6 +87,8 @@ $Utf8 = New-Object System.Text.UTF8Encoding($false)
 $Fence = ([string][char]96) * 3
 $Roles = @('planner', 'coder', 'tester', 'reviewer')
 $Engines = @{ planner = $Planner; coder = $Coder; tester = $Tester; reviewer = $Reviewer }
+$TuDongChuyen = -not $KhongTuChuyen
+$TuDongCho = -not $KhongTuCho
 # Vai cua Claude: claude-agents\<vai>.md (dong model:/tools: o dau file + noi dung huong dan)
 # Vai cua agy   : .agents\agents\<vai>\agent.md (agy tu doc)
 $ClaudeAgentDir = Join-Path $Root 'claude-agents'
@@ -347,37 +356,83 @@ function Invoke-Engine([string]$Role, [string]$Engine, [string]$TaskRel, [int]$V
     return $res
 }
 
+function Test-QuotaError([string]$Err) {
+    # Loi lien quan het quota / gioi han luot dung / qua tai (co the thu lai sau)
+    return ($Err -match 'limit|quota|resource_exhausted|429|rate|overloaded|529|exhausted|too many')
+}
+
+function Get-OtherEngine([string]$Engine) {
+    if ($Engine -eq 'claude') { return 'agy' }
+    return 'claude'
+}
+
+function Test-EngineReady([string]$Engine) {
+    if ($ChayThu) { return $true }
+    return [bool](Get-Command $Engine -ErrorAction SilentlyContinue)
+}
+
 function Show-ErrorHint([string]$Err, [string]$Role, [string]$Engine) {
-    $e = $Err.ToLower()
-    if ($e -match 'limit|quota|resource_exhausted|429|rate') {
+    if (Test-QuotaError $Err) {
         Say '    => Co ve da het quota / gioi han luot dung cua may nay.' 'Yellow'
-    } elseif ($e -match 'auth|login|credential|401|403|sign in') {
+    } elseif ($Err -match 'auth|login|credential|401|403|sign in') {
         Say ('    => Co ve ' + $Engine + ' chua dang nhap. Mo PowerShell, go:  ' + $Engine + '  roi dang nhap.') 'Yellow'
     }
-    $other = 'claude'
-    if ($Engine -eq 'claude') { $other = 'agy' }
     Say '    Khi da khac phuc (hoac quota da hoi lai), chay tiep dung buoc nay:' 'Yellow'
     Say '        .\ship.ps1 -TiepTuc' 'White'
-    Say ('    Hoac doi may cho vai nay:  .\ship.ps1 -TiepTuc -' + (Get-RoleParam $Role) + ' ' + $other) 'White'
+    Say ('    Hoac doi may cho vai nay:  .\ship.ps1 -TiepTuc -' + (Get-RoleParam $Role) + ' ' + (Get-OtherEngine $Engine)) 'White'
     Say ('    Chi tiet loi: ' + (Join-Path $BG 'raw')) 'DarkGray'
 }
 
 function Invoke-Step([string]$Role, [string]$TaskRel, [int]$Vong) {
-    $engine = $Engines[$Role]
-    Say ''
-    Say ('==> [{0}] Vong {1}/{2}  {3}  (may: {4})' -f (Get-Date).ToString('HH:mm:ss'), $Vong, $SoVong, $Role.ToUpper(), $engine) 'Cyan'
-    $r = Invoke-Engine $Role $engine $TaskRel $Vong
-    if (-not $r.Ok) {
+    $daThu = @{}   # may da thu trong chu ky nay (reset sau moi lan cho)
+    $soLanDaCho = 0
+    while ($true) {
+        $engine = $Engines[$Role]
+        Say ''
+        Say ('==> [{0}] Vong {1}/{2}  {3}  (may: {4})' -f (Get-Date).ToString('HH:mm:ss'), $Vong, $SoVong, $Role.ToUpper(), $engine) 'Cyan'
+        $r = Invoke-Engine $Role $engine $TaskRel $Vong
+        $daThu[$engine] = $true
+        if ($r.Ok) {
+            $cost = ''
+            if ($r.Tokens) { $cost += (' | {0:N0} token' -f [double]$r.Tokens) }
+            if ($r.Cost) { $cost += (' | uoc tinh neu tra theo API: ${0:N2}' -f [double]$r.Cost) }
+            Say ('    Xong sau ' + (Format-Secs $r.Secs) + $cost) 'Green'
+            Write-Log ('vong {0} | {1} ({2}) | xong sau {3}{4}' -f $Vong, $Role, $engine, (Format-Secs $r.Secs), $cost)
+            return $r
+        }
         Say ('    LOI: ' + $r.Err) 'Red'
+        Write-Log ('vong {0} | {1} ({2}) | LOI | {3}' -f $Vong, $Role, $engine, $r.Err)
+        $quota = Test-QuotaError $r.Err
+
+        # CACH 1: tu doi sang may con lai (chi khi loi quota va may kia san sang, chua thu trong chu ky nay)
+        if ($quota -and $TuDongChuyen) {
+            $other = Get-OtherEngine $engine
+            if (-not $daThu[$other] -and (Test-EngineReady $other)) {
+                Say ('    => ' + $engine + ' het quota. Tu doi vai ' + $Role.ToUpper() + ' sang ' + $other + ' roi thu lai.') 'Yellow'
+                Write-Log ('vong {0} | {1} tu doi {2} -> {3} (het quota)' -f $Vong, $Role, $engine, $other)
+                $Engines[$Role] = $other
+                Save-State
+                continue
+            }
+        }
+
+        # CACH 2: ca hai may deu het quota -> cho roi thu lai
+        if ($quota -and $TuDongCho -and $soLanDaCho -lt $SoLanCho) {
+            $soLanDaCho++
+            $tiep = (Get-Date).AddMinutes($PhutCho).ToString('HH:mm')
+            Say ('    => Ca hai may deu het quota. Cho ' + $PhutCho + ' phut (den ' + $tiep + ') roi thu lai — lan ' + $soLanDaCho + '/' + $SoLanCho + '.') 'Yellow'
+            Say '       (Ban co the bam Ctrl+C; sau nay chay tiep bang:  .\ship.ps1 -TiepTuc)' 'DarkGray'
+            Write-Log ('vong {0} | {1} | cho {2} phut roi thu lai (lan {3}/{4})' -f $Vong, $Role, $PhutCho, $soLanDaCho, $SoLanCho)
+            Save-State
+            Start-Sleep -Seconds ($PhutCho * 60)
+            $daThu = @{}   # sau khi cho, cho phep thu lai ca hai may
+            continue
+        }
+
+        # Khong khac phuc duoc: dung lai (van luu trang thai de -TiepTuc)
         Show-ErrorHint $r.Err $Role $engine
         Stop-Run 6 ('vong {0} | {1} ({2}) loi: {3}' -f $Vong, $Role, $engine, $r.Err)
     }
-    $cost = ''
-    if ($r.Tokens) { $cost += (' | {0:N0} token' -f [double]$r.Tokens) }
-    if ($r.Cost) { $cost += (' | uoc tinh neu tra theo API: ${0:N2}' -f [double]$r.Cost) }
-    Say ('    Xong sau ' + (Format-Secs $r.Secs) + $cost) 'Green'
-    Write-Log ('vong {0} | {1} ({2}) | xong sau {3}{4}' -f $Vong, $Role, $engine, (Format-Secs $r.Secs), $cost)
-    return $r
 }
 
 # =====================================================================================
@@ -698,6 +753,9 @@ Say ''
 Say '=== DAY CHUYEN 4 AGENT ===' 'Cyan'
 Say (' Planner: {0} | Coder: {1} | Tester: {2} | Reviewer: {3} | toi da {4} vong' -f $Engines.planner, $Engines.coder, $Engines.tester, $Engines.reviewer, $SoVong) 'White'
 Say (' So ban giao: ' + $BG) 'DarkGray'
+$ttChuyen = 'tat'; if ($TuDongChuyen) { $ttChuyen = 'bat' }
+$ttCho = 'tat'; if ($TuDongCho) { $ttCho = ('bat, cho ' + $PhutCho + ' phut x ' + $SoLanCho + ' lan') }
+Say (' Het quota: tu doi may = ' + $ttChuyen + ' | tu cho roi thu lai = ' + $ttCho) 'DarkGray'
 if ($ClaudeConfig) { Say (' Claude dung dang nhap rieng: ' + $ClaudeConfig) 'DarkGray' }
 $agyAcc = Get-AgyAccount
 if ($agyAcc -and ($Engines.Values -contains 'agy')) { Say (' agy dung tai khoan Google: ' + $agyAcc) 'DarkGray' }
