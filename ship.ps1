@@ -265,7 +265,7 @@ function Get-FakeReport([string]$Role, [int]$Vong) {
 }
 
 function Invoke-Engine([string]$Role, [string]$Engine, [string]$TaskRel, [int]$Vong) {
-    $res = @{ Ok = $false; Text = ''; Err = ''; Secs = 0; Cost = $null }
+    $res = @{ Ok = $false; Text = ''; Err = ''; Secs = 0; Cost = $null; Tokens = $null }
     if ($ChayThu) {
         Start-Sleep -Milliseconds 300
         $res.Ok = $true; $res.Text = (Get-FakeReport $Role $Vong); $res.Secs = 0.3
@@ -308,9 +308,11 @@ function Invoke-Engine([string]$Role, [string]$Engine, [string]$TaskRel, [int]$V
     }
     if ($Engine -eq 'claude') {
         $res.Cost = $j.total_cost_usd
+        if ($j.usage) { $res.Tokens = [int64]$j.usage.input_tokens + [int64]$j.usage.output_tokens + [int64]$j.usage.cache_read_input_tokens + [int64]$j.usage.cache_creation_input_tokens }
         if ($j.is_error -or $code -ne 0) { $res.Err = ('Claude bao loi: ' + $j.subtype + ' ' + $j.result); return $res }
         $res.Text = [string]$j.result
     } else {
+        if ($j.usage) { $res.Tokens = [int64]$j.usage.total_tokens }
         if ($j.status -ne 'SUCCESS') { $res.Err = ('agy bao loi: status=' + $j.status + ' ' + $j.error); return $res }
         $res.Text = [string]$j.response
         if ([string]::IsNullOrWhiteSpace($res.Text) -and $j.result) { $res.Text = [string]$j.result }
@@ -346,7 +348,8 @@ function Invoke-Step([string]$Role, [string]$TaskRel, [int]$Vong) {
         Stop-Run 6 ('vong {0} | {1} ({2}) loi: {3}' -f $Vong, $Role, $engine, $r.Err)
     }
     $cost = ''
-    if ($r.Cost) { $cost = (' | uoc tinh neu tra theo API: ${0:N2}' -f [double]$r.Cost) }
+    if ($r.Tokens) { $cost += (' | {0:N0} token' -f [double]$r.Tokens) }
+    if ($r.Cost) { $cost += (' | uoc tinh neu tra theo API: ${0:N2}' -f [double]$r.Cost) }
     Say ('    Xong sau ' + (Format-Secs $r.Secs) + $cost) 'Green'
     Write-Log ('vong {0} | {1} ({2}) | xong sau {3}{4}' -f $Vong, $Role, $engine, (Format-Secs $r.Secs), $cost)
     return $r
@@ -503,7 +506,8 @@ function Invoke-Doctor {
     } else { $bad++; Say '  [X]  chua phai git repo:  git init; git add -A; git commit -m "khoi tao"' 'Red' }
 
     Say '--- Goi thu tung may AI (ton rat it quota)' 'Cyan'
-    $ping = 'Day chi la kiem tra ket noi. Khong doc, khong sua file nao. Chi tra loi dung mot tu: OK'
+    # Hoi vai: neu file vai duoc nap dung, agent se tra loi dung ten vai (agy bo qua ten agent sai ma khong bao loi)
+    $ping = 'Day chi la kiem tra ket noi. Khong doc, khong sua file nao. Theo huong dan he thong cua ban, ban dong vai gi trong day chuyen 4 agent? Chi tra loi dung 1 tu viet hoa.'
     $used = @($Engines.Values | Select-Object -Unique)
     if (($used -contains 'claude') -and (Get-Command claude -ErrorAction SilentlyContinue)) {
         $a = Get-ClaudeArgs 'planner' $ping
@@ -513,7 +517,11 @@ function Invoke-Doctor {
             $o = & claude @a 2>$null
             $j = ConvertFrom-JsonLoose ($o | Out-String)
         }
-        if ($j -and -not $j.is_error) { Say ('  [OK] claude (vai planner) tra loi: ' + ([string]$j.result).Trim()) 'Green' }
+        if ($j -and -not $j.is_error) {
+            $ans = ([string]$j.result).Trim()
+            if ((Remove-Diacritics $ans) -match 'PLANNER') { Say ('  [OK] claude nhan dung vai: ' + $ans) 'Green' }
+            else { $bad++; Say ('  [!]  claude tra loi "' + $ans + '" - co the chua nap claude-agents\planner.md') 'Yellow' }
+        }
         else {
             $bad++
             $msg = 'khong nhan duoc JSON'
@@ -524,7 +532,11 @@ function Invoke-Doctor {
     if (($used -contains 'agy') -and (Get-Command agy -ErrorAction SilentlyContinue)) {
         $o = & agy -p $ping --agent coder --output-format json --print-timeout 3m
         $j = ConvertFrom-JsonLoose ($o | Out-String)
-        if ($j -and $j.status -eq 'SUCCESS') { Say ('  [OK] agy (vai coder) tra loi: ' + ([string]$j.response).Trim()) 'Green' }
+        if ($j -and $j.status -eq 'SUCCESS') {
+            $ans = ([string]$j.response).Trim()
+            if ((Remove-Diacritics $ans) -match 'CODER') { Say ('  [OK] agy nhan dung vai: ' + $ans) 'Green' }
+            else { $bad++; Say ('  [!]  agy tra loi "' + $ans + '" - co the chua nap .agents\agents\coder\agent.md') 'Yellow' }
+        }
         else {
             $bad++
             $msg = 'khong nhan duoc JSON - co the chua dang nhap: go  agy  de dang nhap'
