@@ -4,6 +4,7 @@ Ví dụ:
     python so_tay_hoc.py them "Python cơ bản" 1.5 --ghi-chu "vòng lặp for"
     python so_tay_hoc.py ds
     python so_tay_hoc.py tong
+    python so_tay_hoc.py tuan
 """
 
 from __future__ import annotations
@@ -12,10 +13,11 @@ import argparse
 import json
 import sys
 from dataclasses import asdict, dataclass
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 TEP_MAC_DINH = Path(__file__).with_name("du_lieu.json")
+SO_NGAY_TUAN = 7
 
 
 @dataclass
@@ -73,6 +75,20 @@ def tong_theo_chu_de(ds: list[BuoiHoc]) -> dict[str, float]:
     return dict(sorted(tong.items(), key=lambda cap: cap[1], reverse=True))
 
 
+def loc_buoi_trong_tuan(ds: list[BuoiHoc], hom_nay: date) -> list[BuoiHoc]:
+    """Lọc các buổi học trong 7 ngày gần nhất, tính cả ngày hôm nay."""
+    moc_dau = hom_nay - timedelta(days=SO_NGAY_TUAN - 1)
+    ket_qua: list[BuoiHoc] = []
+    for buoi in ds:
+        try:
+            ngay_buoi = date.fromisoformat(buoi.ngay)
+        except ValueError as loi:
+            raise ValueError(f"Dữ liệu có ngày không hợp lệ: {buoi.ngay!r}") from loi
+        if moc_dau <= ngay_buoi <= hom_nay:
+            ket_qua.append(buoi)
+    return ket_qua
+
+
 def tao_parser() -> argparse.ArgumentParser:
     """Tạo bộ phân tích tham số dòng lệnh."""
     parser = argparse.ArgumentParser(description="Sổ tay học tập: ghi lại giờ học theo chủ đề.")
@@ -87,6 +103,8 @@ def tao_parser() -> argparse.ArgumentParser:
 
     lenh.add_parser("ds", help="liệt kê các buổi học")
     lenh.add_parser("tong", help="tổng số giờ theo chủ đề")
+    p_tuan = lenh.add_parser("tuan", help="tổng số giờ 7 ngày gần nhất theo chủ đề")
+    p_tuan.add_argument("--ngay", help="ngày mốc dạng YYYY-MM-DD (mặc định: hôm nay)")
     return parser
 
 
@@ -110,6 +128,22 @@ def main(argv: list[str] | None = None) -> int:
                 print("Chưa có buổi học nào.")
             for chu_de, so_gio in tong.items():
                 print(f"{chu_de}: {so_gio:g} giờ")
+        elif args.lenh == "tuan":
+            if args.ngay is None:
+                hom_nay = date.today()
+            else:
+                try:
+                    hom_nay = date.fromisoformat(args.ngay)
+                except ValueError as loi:
+                    raise ValueError("Ngày phải có dạng YYYY-MM-DD, ví dụ 2026-10-01.") from loi
+            trong_tuan = loc_buoi_trong_tuan(doc_du_lieu(args.tep), hom_nay)
+            tong = tong_theo_chu_de(trong_tuan)
+            if not tong:
+                print("Chưa có buổi học nào trong 7 ngày qua.")
+            else:
+                for chu_de, so_gio in tong.items():
+                    print(f"{chu_de}: {so_gio:g} giờ")
+                print(f"Tổng: {round(sum(tong.values()), 2):g} giờ")
     except ValueError as loi:
         print(f"Lỗi: {loi}", file=sys.stderr)
         return 1

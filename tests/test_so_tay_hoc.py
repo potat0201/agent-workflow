@@ -1,5 +1,6 @@
 """Test cho sổ tay học tập."""
 
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -54,3 +55,68 @@ def test_cli_them_roi_tong(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -
 def test_cli_bao_loi_dau_vao(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert st.main(["--tep", str(tmp_path / "du_lieu.json"), "them", "Python", "0"]) == 1
     assert "Lỗi" in capsys.readouterr().err
+
+
+def test_loc_buoi_trong_tuan_bo_buoi_cu() -> None:
+    hom_nay = date(2026, 10, 1)
+    ds = [
+        st.BuoiHoc("Giữ hôm nay", 1, "2026-10-01"),
+        st.BuoiHoc("Giữ mốc đầu", 2, "2026-09-25"),
+        st.BuoiHoc("Bỏ quá cũ", 3, "2026-09-24"),
+    ]
+    ket_qua = st.loc_buoi_trong_tuan(ds, hom_nay)
+    assert ket_qua == [
+        st.BuoiHoc("Giữ hôm nay", 1, "2026-10-01"),
+        st.BuoiHoc("Giữ mốc đầu", 2, "2026-09-25"),
+    ]
+
+
+def test_loc_buoi_trong_tuan_bo_buoi_tuong_lai() -> None:
+    hom_nay = date(2026, 10, 1)
+    ds = [
+        st.BuoiHoc("Hôm nay", 1, "2026-10-01"),
+        st.BuoiHoc("Tương lai", 2, "2026-10-02"),
+    ]
+    ket_qua = st.loc_buoi_trong_tuan(ds, hom_nay)
+    assert ket_qua == [st.BuoiHoc("Hôm nay", 1, "2026-10-01")]
+
+
+def test_cli_tuan_in_tong(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    tep = str(tmp_path / "du_lieu.json")
+    st.main(["--tep", tep, "them", "Python", "2", "--ngay", "2026-10-01"])
+    st.main(["--tep", tep, "them", "Toán", "3", "--ngay", "2026-09-26"])
+    st.main(["--tep", tep, "them", "Python", "1.5", "--ngay", "2026-09-25"])
+    st.main(["--tep", tep, "them", "Lịch sử", "4", "--ngay", "2026-09-24"])
+    capsys.readouterr()
+
+    assert st.main(["--tep", tep, "tuan", "--ngay", "2026-10-01"]) == 0
+    dong = capsys.readouterr().out.splitlines()
+    assert dong == [
+        "Python: 3.5 giờ",
+        "Toán: 3 giờ",
+        "Tổng: 6.5 giờ",
+    ]
+
+
+def test_cli_tuan_khong_co_buoi(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    tep = str(tmp_path / "du_lieu.json")
+    assert st.main(["--tep", tep, "tuan", "--ngay", "2026-10-01"]) == 0
+    assert capsys.readouterr().out.splitlines() == ["Chưa có buổi học nào trong 7 ngày qua."]
+
+    st.main(["--tep", tep, "them", "Văn", "2", "--ngay", "2026-09-20"])
+    capsys.readouterr()
+    assert st.main(["--tep", tep, "tuan", "--ngay", "2026-10-01"]) == 0
+    assert capsys.readouterr().out.splitlines() == ["Chưa có buổi học nào trong 7 ngày qua."]
+
+
+def test_cli_tuan_ngay_sai_dinh_dang(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    tep = str(tmp_path / "du_lieu.json")
+    assert st.main(["--tep", tep, "tuan", "--ngay", "01/10/2026"]) == 1
+    err = capsys.readouterr().err
+    assert "Lỗi" in err
+
+
+def test_loc_buoi_trong_tuan_ngay_du_lieu_hong() -> None:
+    ds = [st.BuoiHoc("Python", 1, "01/10/2026")]
+    with pytest.raises(ValueError, match="Dữ liệu có ngày không hợp lệ"):
+        st.loc_buoi_trong_tuan(ds, date(2026, 10, 1))
