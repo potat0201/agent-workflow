@@ -2,6 +2,7 @@
 
 from datetime import date
 from pathlib import Path
+import typing
 
 import pytest
 
@@ -113,10 +114,117 @@ def test_cli_tuan_ngay_sai_dinh_dang(tmp_path: Path, capsys: pytest.CaptureFixtu
     tep = str(tmp_path / "du_lieu.json")
     assert st.main(["--tep", tep, "tuan", "--ngay", "01/10/2026"]) == 1
     err = capsys.readouterr().err
-    assert "Lỗi" in err
+    assert err.strip() == "Lỗi: Ngày phải có dạng YYYY-MM-DD, ví dụ 2026-10-01."
+    assert "Traceback" not in err
 
 
 def test_loc_buoi_trong_tuan_ngay_du_lieu_hong() -> None:
     ds = [st.BuoiHoc("Python", 1, "01/10/2026")]
     with pytest.raises(ValueError, match="Dữ liệu có ngày không hợp lệ"):
         st.loc_buoi_trong_tuan(ds, date(2026, 10, 1))
+
+
+def test_hang_so_ngay_tuan() -> None:
+    assert getattr(st, "SO_NGAY_TUAN", None) == 7
+
+
+def test_loc_buoi_trong_tuan_chu_ky_va_docstring() -> None:
+    fn = getattr(st, "loc_buoi_trong_tuan", None)
+    assert fn is not None
+    doc = fn.__doc__
+    assert doc is not None and doc.strip()
+    assert len(doc.strip().splitlines()) == 1
+    hints = typing.get_type_hints(fn)
+    assert hints.get("hom_nay") is date
+    assert "BuoiHoc" in str(hints.get("ds"))
+    assert "BuoiHoc" in str(hints.get("return"))
+
+
+def test_cli_help_liet_ke_lenh_tuan(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        st.main(["--help"])
+    assert exc_info.value.code == 0
+    out = capsys.readouterr().out
+    assert "tuan" in out
+    assert "tổng số giờ 7 ngày gần nhất theo chủ đề" in out
+
+
+def test_cli_tuan_help_hien_co_ngay(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        st.main(["tuan", "--help"])
+    assert exc_info.value.code == 0
+    out = capsys.readouterr().out
+    assert "--ngay" in out
+    assert "ngày mốc dạng YYYY-MM-DD (mặc định: hôm nay)" in out
+
+
+def test_cli_tuan_bo_buoi_tuong_lai(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    tep = str(tmp_path / "du_lieu.json")
+    st.main(["--tep", tep, "them", "Tương lai", "3", "--ngay", "2026-10-02"])
+    capsys.readouterr()
+
+    assert st.main(["--tep", tep, "tuan", "--ngay", "2026-10-01"]) == 0
+    assert capsys.readouterr().out.splitlines() == ["Chưa có buổi học nào trong 7 ngày qua."]
+
+
+def test_cli_tuan_ngay_du_lieu_hong(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    tep = tmp_path / "du_lieu.json"
+    tep.write_text('[{"chu_de": "Python", "so_gio": 1.0, "ngay": "01/10/2026", "ghi_chu": ""}]', encoding="utf-8")
+    assert st.main(["--tep", str(tep), "tuan", "--ngay", "2026-10-01"]) == 1
+    err = capsys.readouterr().err
+    assert "Lỗi: Dữ liệu có ngày không hợp lệ: '01/10/2026'" in err
+    assert "Traceback" not in err
+
+
+def test_cli_tuan_lam_tron_so_gio_float(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    tep = str(tmp_path / "du_lieu.json")
+    st.main(["--tep", tep, "them", "Python", "1.1", "--ngay", "2026-10-01"])
+    st.main(["--tep", tep, "them", "Toán", "2.2", "--ngay", "2026-10-01"])
+    capsys.readouterr()
+
+    assert st.main(["--tep", tep, "tuan", "--ngay", "2026-10-01"]) == 0
+    dong = capsys.readouterr().out.splitlines()
+    assert dong == [
+        "Toán: 2.2 giờ",
+        "Python: 1.1 giờ",
+        "Tổng: 3.3 giờ",
+    ]
+
+
+def test_cli_tuan_nhieu_chu_de_cung_so_gio(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    tep = str(tmp_path / "du_lieu.json")
+    st.main(["--tep", tep, "them", "Toán", "2", "--ngay", "2026-10-01"])
+    st.main(["--tep", tep, "them", "Python", "2", "--ngay", "2026-10-01"])
+    st.main(["--tep", tep, "them", "Văn", "2", "--ngay", "2026-10-01"])
+    capsys.readouterr()
+
+    assert st.main(["--tep", tep, "tuan", "--ngay", "2026-10-01"]) == 0
+    dong = capsys.readouterr().out.splitlines()
+    assert dong == [
+        "Toán: 2 giờ",
+        "Python: 2 giờ",
+        "Văn: 2 giờ",
+        "Tổng: 6 giờ",
+    ]
+
+
+def test_cli_tuan_mac_dinh_hom_nay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    tep = str(tmp_path / "du_lieu.json")
+
+    class MockDate(date):
+        @classmethod
+        def today(cls) -> date:
+            return date(2026, 10, 1)
+
+    MockDate.fromisoformat = date.fromisoformat
+    monkeypatch.setattr(st, "date", MockDate)
+
+    st.main(["--tep", tep, "them", "Python", "2"])
+    capsys.readouterr()
+    assert st.main(["--tep", tep, "tuan"]) == 0
+    assert capsys.readouterr().out.splitlines() == [
+        "Python: 2 giờ",
+        "Tổng: 2 giờ",
+    ]
