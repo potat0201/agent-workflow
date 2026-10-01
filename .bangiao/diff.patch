@@ -1,0 +1,339 @@
+diff --git a/.agents/agents/coder/agent.md b/.agents/agents/coder/agent.md
+index 653fb62..f40c71d 100644
+--- a/.agents/agents/coder/agent.md
++++ b/.agents/agents/coder/agent.md
+@@ -1,7 +1,14 @@
+ ---
+ name: coder
+-description: Lập trình viên của dây chuyền 4 agent. Triển khai đúng theo .bangiao/ke-hoach.md và sửa theo .bangiao/phan-hoi.md.
++description: Lap trinh vien cua day chuyen 4 agent. Trien khai dung theo .bangiao/ke-hoach.md va sua theo .bangiao/phan-hoi.md.
+ model: pro
++commandExecutionPolicy: auto
++tools:
++  - view_file
++  - grep_search
++  - write_file
++  - replace_file_content
++  - run_command
+ ---
+ 
+ Bạn là **CODER** (lập trình viên) trong dây chuyền 4 agent: Planner → Coder → Tester → Reviewer.
+diff --git a/.agents/agents/planner/agent.md b/.agents/agents/planner/agent.md
+index d0d0875..13ec83d 100644
+--- a/.agents/agents/planner/agent.md
++++ b/.agents/agents/planner/agent.md
+@@ -1,7 +1,10 @@
+ ---
+ name: planner
+-description: Kiến trúc sư của dây chuyền 4 agent. Đọc yêu cầu và codebase, viết bản kế hoạch chi tiết cho Coder. Chỉ đọc, không viết code.
++description: Kien truc su cua day chuyen 4 agent. Doc yeu cau va codebase, viet ban ke hoach chi tiet cho Coder. Chi doc, khong viet code.
+ model: pro
++tools:
++  - view_file
++  - grep_search
+ ---
+ 
+ Bạn là **PLANNER** (kiến trúc sư) trong dây chuyền 4 agent: Planner → Coder → Tester → Reviewer.
+diff --git a/.agents/agents/reviewer/agent.md b/.agents/agents/reviewer/agent.md
+index cc1704e..dcf4e3e 100644
+--- a/.agents/agents/reviewer/agent.md
++++ b/.agents/agents/reviewer/agent.md
+@@ -1,7 +1,10 @@
+ ---
+ name: reviewer
+-description: Người duyệt cuối của dây chuyền 4 agent. Đối chiếu kế hoạch, test và diff, ra phán quyết CHOT / CAN_SUA / CHAN. Chỉ đọc.
++description: Nguoi duyet cuoi cua day chuyen 4 agent. Doi chieu ke hoach, test va diff, ra phan quyet CHOT / CAN_SUA / CHAN. Chi doc.
+ model: pro
++tools:
++  - view_file
++  - grep_search
+ ---
+ 
+ Bạn là **REVIEWER** (người duyệt) trong dây chuyền 4 agent: Planner → Coder → Tester → Reviewer. Bạn là chốt chặn cuối trước khi con người xem.
+diff --git a/.agents/agents/tester/agent.md b/.agents/agents/tester/agent.md
+index 22e47a2..606c27b 100644
+--- a/.agents/agents/tester/agent.md
++++ b/.agents/agents/tester/agent.md
+@@ -1,7 +1,14 @@
+ ---
+ name: tester
+-description: Người kiểm thử của dây chuyền 4 agent. Viết và chạy test theo tiêu chí hoàn thành; không sửa code sản phẩm.
++description: Nguoi kiem thu cua day chuyen 4 agent. Viet va chay test theo tieu chi hoan thanh; khong sua code san pham.
+ model: flash
++commandExecutionPolicy: auto
++tools:
++  - view_file
++  - grep_search
++  - write_file
++  - replace_file_content
++  - run_command
+ ---
+ 
+ Bạn là **TESTER** (kiểm thử) trong dây chuyền 4 agent: Planner → Coder → Tester → Reviewer.
+diff --git a/so_tay_hoc.py b/so_tay_hoc.py
+index 46b53de..9de9a46 100644
+--- a/so_tay_hoc.py
++++ b/so_tay_hoc.py
+@@ -4,6 +4,7 @@ Ví dụ:
+     python so_tay_hoc.py them "Python cơ bản" 1.5 --ghi-chu "vòng lặp for"
+     python so_tay_hoc.py ds
+     python so_tay_hoc.py tong
++    python so_tay_hoc.py tuan
+ """
+ 
+ from __future__ import annotations
+@@ -12,10 +13,11 @@ import argparse
+ import json
+ import sys
+ from dataclasses import asdict, dataclass
+-from datetime import date
++from datetime import date, timedelta
+ from pathlib import Path
+ 
+ TEP_MAC_DINH = Path(__file__).with_name("du_lieu.json")
++SO_NGAY_TUAN = 7
+ 
+ 
+ @dataclass
+@@ -73,6 +75,20 @@ def tong_theo_chu_de(ds: list[BuoiHoc]) -> dict[str, float]:
+     return dict(sorted(tong.items(), key=lambda cap: cap[1], reverse=True))
+ 
+ 
++def loc_buoi_trong_tuan(ds: list[BuoiHoc], hom_nay: date) -> list[BuoiHoc]:
++    """Lọc các buổi học trong 7 ngày gần nhất, tính cả ngày hôm nay."""
++    moc_dau = hom_nay - timedelta(days=SO_NGAY_TUAN - 1)
++    ket_qua: list[BuoiHoc] = []
++    for buoi in ds:
++        try:
++            ngay_buoi = date.fromisoformat(buoi.ngay)
++        except ValueError as loi:
++            raise ValueError(f"Dữ liệu có ngày không hợp lệ: {buoi.ngay!r}") from loi
++        if moc_dau <= ngay_buoi <= hom_nay:
++            ket_qua.append(buoi)
++    return ket_qua
++
++
+ def tao_parser() -> argparse.ArgumentParser:
+     """Tạo bộ phân tích tham số dòng lệnh."""
+     parser = argparse.ArgumentParser(description="Sổ tay học tập: ghi lại giờ học theo chủ đề.")
+@@ -87,6 +103,8 @@ def tao_parser() -> argparse.ArgumentParser:
+ 
+     lenh.add_parser("ds", help="liệt kê các buổi học")
+     lenh.add_parser("tong", help="tổng số giờ theo chủ đề")
++    p_tuan = lenh.add_parser("tuan", help="tổng số giờ 7 ngày gần nhất theo chủ đề")
++    p_tuan.add_argument("--ngay", help="ngày mốc dạng YYYY-MM-DD (mặc định: hôm nay)")
+     return parser
+ 
+ 
+@@ -110,6 +128,22 @@ def main(argv: list[str] | None = None) -> int:
+                 print("Chưa có buổi học nào.")
+             for chu_de, so_gio in tong.items():
+                 print(f"{chu_de}: {so_gio:g} giờ")
++        elif args.lenh == "tuan":
++            if args.ngay is None:
++                hom_nay = date.today()
++            else:
++                try:
++                    hom_nay = date.fromisoformat(args.ngay)
++                except ValueError as loi:
++                    raise ValueError("Ngày phải có dạng YYYY-MM-DD, ví dụ 2026-10-01.") from loi
++            trong_tuan = loc_buoi_trong_tuan(doc_du_lieu(args.tep), hom_nay)
++            tong = tong_theo_chu_de(trong_tuan)
++            if not tong:
++                print("Chưa có buổi học nào trong 7 ngày qua.")
++            else:
++                for chu_de, so_gio in tong.items():
++                    print(f"{chu_de}: {so_gio:g} giờ")
++                print(f"Tổng: {round(sum(tong.values()), 2):g} giờ")
+     except ValueError as loi:
+         print(f"Lỗi: {loi}", file=sys.stderr)
+         return 1
+diff --git a/tests/test_so_tay_hoc.py b/tests/test_so_tay_hoc.py
+index b25fd9d..bbc71b5 100644
+--- a/tests/test_so_tay_hoc.py
++++ b/tests/test_so_tay_hoc.py
+@@ -1,6 +1,8 @@
+ """Test cho sổ tay học tập."""
+ 
++from datetime import date
+ from pathlib import Path
++import typing
+ 
+ import pytest
+ 
+@@ -54,3 +56,175 @@ def test_cli_them_roi_tong(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -
+ def test_cli_bao_loi_dau_vao(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+     assert st.main(["--tep", str(tmp_path / "du_lieu.json"), "them", "Python", "0"]) == 1
+     assert "Lỗi" in capsys.readouterr().err
++
++
++def test_loc_buoi_trong_tuan_bo_buoi_cu() -> None:
++    hom_nay = date(2026, 10, 1)
++    ds = [
++        st.BuoiHoc("Giữ hôm nay", 1, "2026-10-01"),
++        st.BuoiHoc("Giữ mốc đầu", 2, "2026-09-25"),
++        st.BuoiHoc("Bỏ quá cũ", 3, "2026-09-24"),
++    ]
++    ket_qua = st.loc_buoi_trong_tuan(ds, hom_nay)
++    assert ket_qua == [
++        st.BuoiHoc("Giữ hôm nay", 1, "2026-10-01"),
++        st.BuoiHoc("Giữ mốc đầu", 2, "2026-09-25"),
++    ]
++
++
++def test_loc_buoi_trong_tuan_bo_buoi_tuong_lai() -> None:
++    hom_nay = date(2026, 10, 1)
++    ds = [
++        st.BuoiHoc("Hôm nay", 1, "2026-10-01"),
++        st.BuoiHoc("Tương lai", 2, "2026-10-02"),
++    ]
++    ket_qua = st.loc_buoi_trong_tuan(ds, hom_nay)
++    assert ket_qua == [st.BuoiHoc("Hôm nay", 1, "2026-10-01")]
++
++
++def test_cli_tuan_in_tong(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
++    tep = str(tmp_path / "du_lieu.json")
++    st.main(["--tep", tep, "them", "Python", "2", "--ngay", "2026-10-01"])
++    st.main(["--tep", tep, "them", "Toán", "3", "--ngay", "2026-09-26"])
++    st.main(["--tep", tep, "them", "Python", "1.5", "--ngay", "2026-09-25"])
++    st.main(["--tep", tep, "them", "Lịch sử", "4", "--ngay", "2026-09-24"])
++    capsys.readouterr()
++
++    assert st.main(["--tep", tep, "tuan", "--ngay", "2026-10-01"]) == 0
++    dong = capsys.readouterr().out.splitlines()
++    assert dong == [
++        "Python: 3.5 giờ",
++        "Toán: 3 giờ",
++        "Tổng: 6.5 giờ",
++    ]
++
++
++def test_cli_tuan_khong_co_buoi(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
++    tep = str(tmp_path / "du_lieu.json")
++    assert st.main(["--tep", tep, "tuan", "--ngay", "2026-10-01"]) == 0
++    assert capsys.readouterr().out.splitlines() == ["Chưa có buổi học nào trong 7 ngày qua."]
++
++    st.main(["--tep", tep, "them", "Văn", "2", "--ngay", "2026-09-20"])
++    capsys.readouterr()
++    assert st.main(["--tep", tep, "tuan", "--ngay", "2026-10-01"]) == 0
++    assert capsys.readouterr().out.splitlines() == ["Chưa có buổi học nào trong 7 ngày qua."]
++
++
++def test_cli_tuan_ngay_sai_dinh_dang(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
++    tep = str(tmp_path / "du_lieu.json")
++    assert st.main(["--tep", tep, "tuan", "--ngay", "01/10/2026"]) == 1
++    err = capsys.readouterr().err
++    assert err.strip() == "Lỗi: Ngày phải có dạng YYYY-MM-DD, ví dụ 2026-10-01."
++    assert "Traceback" not in err
++
++
++def test_loc_buoi_trong_tuan_ngay_du_lieu_hong() -> None:
++    ds = [st.BuoiHoc("Python", 1, "01/10/2026")]
++    with pytest.raises(ValueError, match="Dữ liệu có ngày không hợp lệ"):
++        st.loc_buoi_trong_tuan(ds, date(2026, 10, 1))
++
++
++def test_hang_so_ngay_tuan() -> None:
++    assert getattr(st, "SO_NGAY_TUAN", None) == 7
++
++
++def test_loc_buoi_trong_tuan_chu_ky_va_docstring() -> None:
++    fn = getattr(st, "loc_buoi_trong_tuan", None)
++    assert fn is not None
++    doc = fn.__doc__
++    assert doc is not None and doc.strip()
++    assert len(doc.strip().splitlines()) == 1
++    hints = typing.get_type_hints(fn)
++    assert hints.get("hom_nay") is date
++    assert "BuoiHoc" in str(hints.get("ds"))
++    assert "BuoiHoc" in str(hints.get("return"))
++
++
++def test_cli_help_liet_ke_lenh_tuan(capsys: pytest.CaptureFixture[str]) -> None:
++    with pytest.raises(SystemExit) as exc_info:
++        st.main(["--help"])
++    assert exc_info.value.code == 0
++    out = capsys.readouterr().out
++    assert "tuan" in out
++    assert "tổng số giờ 7 ngày gần nhất theo chủ đề" in out
++
++
++def test_cli_tuan_help_hien_co_ngay(capsys: pytest.CaptureFixture[str]) -> None:
++    with pytest.raises(SystemExit) as exc_info:
++        st.main(["tuan", "--help"])
++    assert exc_info.value.code == 0
++    out = capsys.readouterr().out
++    assert "--ngay" in out
++    assert "ngày mốc dạng YYYY-MM-DD (mặc định: hôm nay)" in out
++
++
++def test_cli_tuan_bo_buoi_tuong_lai(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
++    tep = str(tmp_path / "du_lieu.json")
++    st.main(["--tep", tep, "them", "Tương lai", "3", "--ngay", "2026-10-02"])
++    capsys.readouterr()
++
++    assert st.main(["--tep", tep, "tuan", "--ngay", "2026-10-01"]) == 0
++    assert capsys.readouterr().out.splitlines() == ["Chưa có buổi học nào trong 7 ngày qua."]
++
++
++def test_cli_tuan_ngay_du_lieu_hong(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
++    tep = tmp_path / "du_lieu.json"
++    tep.write_text('[{"chu_de": "Python", "so_gio": 1.0, "ngay": "01/10/2026", "ghi_chu": ""}]', encoding="utf-8")
++    assert st.main(["--tep", str(tep), "tuan", "--ngay", "2026-10-01"]) == 1
++    err = capsys.readouterr().err
++    assert "Lỗi: Dữ liệu có ngày không hợp lệ: '01/10/2026'" in err
++    assert "Traceback" not in err
++
++
++def test_cli_tuan_lam_tron_so_gio_float(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
++    tep = str(tmp_path / "du_lieu.json")
++    st.main(["--tep", tep, "them", "Python", "1.1", "--ngay", "2026-10-01"])
++    st.main(["--tep", tep, "them", "Toán", "2.2", "--ngay", "2026-10-01"])
++    capsys.readouterr()
++
++    assert st.main(["--tep", tep, "tuan", "--ngay", "2026-10-01"]) == 0
++    dong = capsys.readouterr().out.splitlines()
++    assert dong == [
++        "Toán: 2.2 giờ",
++        "Python: 1.1 giờ",
++        "Tổng: 3.3 giờ",
++    ]
++
++
++def test_cli_tuan_nhieu_chu_de_cung_so_gio(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
++    tep = str(tmp_path / "du_lieu.json")
++    st.main(["--tep", tep, "them", "Toán", "2", "--ngay", "2026-10-01"])
++    st.main(["--tep", tep, "them", "Python", "2", "--ngay", "2026-10-01"])
++    st.main(["--tep", tep, "them", "Văn", "2", "--ngay", "2026-10-01"])
++    capsys.readouterr()
++
++    assert st.main(["--tep", tep, "tuan", "--ngay", "2026-10-01"]) == 0
++    dong = capsys.readouterr().out.splitlines()
++    assert dong == [
++        "Toán: 2 giờ",
++        "Python: 2 giờ",
++        "Văn: 2 giờ",
++        "Tổng: 6 giờ",
++    ]
++
++
++def test_cli_tuan_mac_dinh_hom_nay(
++    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
++) -> None:
++    tep = str(tmp_path / "du_lieu.json")
++
++    class MockDate(date):
++        @classmethod
++        def today(cls) -> date:
++            return date(2026, 10, 1)
++
++    MockDate.fromisoformat = date.fromisoformat
++    monkeypatch.setattr(st, "date", MockDate)
++
++    st.main(["--tep", tep, "them", "Python", "2"])
++    capsys.readouterr()
++    assert st.main(["--tep", tep, "tuan"]) == 0
++    assert capsys.readouterr().out.splitlines() == [
++        "Python: 2 giờ",
++        "Tổng: 2 giờ",
++    ]
